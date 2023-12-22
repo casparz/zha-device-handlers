@@ -40,7 +40,7 @@ from zhaquirks.const import (
     TURN_ON,
     ZHA_SEND_EVENT,
 )
-from zhaquirks.philips import PHILIPS, SIGNIFY
+from zhaquirks.philips import PHILIPS, SIGNIFY, ButtonPressQueue
 
 DEVICE_SPECIFIC_UNKNOWN = 64512
 _LOGGER = logging.getLogger(__name__)
@@ -93,6 +93,8 @@ class PhilipsRemoteCluster(CustomCluster):
     }
     PRESS_TYPES = {0: "press", 1: "hold", 2: "press_release", 3: "hold_release"}
 
+    button_press_queue = ButtonPressQueue()
+
     def handle_cluster_request(
         self,
         hdr: foundation.ZCLHeader,
@@ -120,8 +122,34 @@ class PhilipsRemoteCluster(CustomCluster):
             ARGS: args,
         }
 
-        action = f"{button}_{press_type}"
-        self.listener_event(ZHA_SEND_EVENT, action, event_args)
+        def send_press_event(click_count):
+            _LOGGER.debug(
+                "PhilipsRemoteCluster - send_press_event click_count: [%s]", click_count
+            )
+            press_type = None
+            if click_count == 1:
+                press_type = "press"
+            elif click_count == 2:
+                press_type = "double_press"
+            elif click_count == 3:
+                press_type = "triple_press"
+            elif click_count == 4:
+                press_type = "quadruple_press"
+            elif click_count > 4:
+                press_type = "quintuple_press"
+
+            if press_type:
+                # Override PRESS_TYPE
+                event_args[PRESS_TYPE] = press_type
+                action = f"{button}_{press_type}"
+                self.listener_event(ZHA_SEND_EVENT, action, event_args)
+
+        # Derive Multiple Presses
+        if press_type == "press":
+            self.button_press_queue.press(send_press_event, button)
+        else:
+            action = f"{button}_{press_type}"
+            self.listener_event(ZHA_SEND_EVENT, action, event_args)
 
 
 class PhilipsROM001(CustomDevice):
